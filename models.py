@@ -1,4 +1,5 @@
 from pydantic import BaseModel, field_validator
+from typing import Tuple
 import db_handler as db
 
 class User(BaseModel):
@@ -38,8 +39,10 @@ class Vacancy(BaseModel):
     employer: str
     title: str
     brief: str = None
-    icon_path: str
-    salary: (float, float) = (0, 0)
+    description: str
+    icon_path: str = None
+    salary: Tuple[float, float] = (0, 0)
+    required_year: int = 0
 
     def to_db(self):
         db_vacancy = db.Vacancy(
@@ -47,8 +50,11 @@ class Vacancy(BaseModel):
             employer=self.employer,
             title=self.title,
             brief=self.brief,
+            description=self.description,
             icon_path=self.icon_path,
-            salary_top=self.salary[0]
+            salary_top=self.salary[1],
+            salary_bottom=self.salary[0],
+            required_year=self.required_year
         )
         return db_vacancy
 
@@ -59,7 +65,9 @@ class Vacancy(BaseModel):
             employer = db_vacancy.employer,
             title = db_vacancy.title,
             brief = db_vacancy.brief,
+            description = db_vacancy.description,
             icon_path = db_vacancy.icon_path,
-            salary = (db_vacancy.salary_top,db_vacancy.salary_bottom)
+            salary = (db_vacancy.salary_top,db_vacancy.salary_bottom),
+            required_year = db_vacancy.required_year
         )
         return vacancy

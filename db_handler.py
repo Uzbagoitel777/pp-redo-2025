@@ -33,9 +33,11 @@ class Vacancy(Base):
     employer = Column(String, index=True)
     title = Column(String, index=True)
     brief = Column(String, nullable=True)
+    description = Column(String, index=True)
     icon_path = Column(String, index=True)
     salary_top = Column(Float)
     salary_bottom = Column(Float)
+    required_year = Column(Integer)
 
 Base.metadata.create_all(bind=engine)
 
