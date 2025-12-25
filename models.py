@@ -1,73 +1,243 @@
-from pydantic import BaseModel, field_validator
-from typing import Tuple
+from pydantic import BaseModel, field_validator, EmailStr, ConfigDict
+from typing import List, Optional
+from datetime import datetime
 import db_handler as db
 
-class User(BaseModel):
-    id: int = None
+
+class UserBase(BaseModel):
     fname: str
     lname: str
-    pname: str = None
-    email: str
+    email: EmailStr
+    role: bool
+
+
+class UserCreate(UserBase):
     password: str
+    pname: Optional[str] = None
+    org_id: Optional[int] = None
 
-    def to_db(self):
-        db_user = db.User(
-            id=self.id,
-            fname=self.fname,
-            lname=self.lname,
-            pname=self.pname,
-            email=self.email,
-            password=self.password
-        )
-        return db_user
-
+    @field_validator('password')
     @classmethod
-    def from_db(cls, db_user: db.User):
-        user = cls(
-            id = db_user.id,
-            fname = db_user.fname,
-            lname = db_user.lname,
-            pname = db_user.pname,
-            email = db_user.email,
-            password = db_user.password
-        )
-        return user
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
 
 
-class Vacancy(BaseModel):
-    id: int = None
-    employer: str
+class UserUpdate(BaseModel):
+    fname: Optional[str] = None
+    lname: Optional[str] = None
+    pname: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    role: Optional[bool] = None
+    icon_id: Optional[int] = None
+    org_id: Optional[int] = None
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        if v is not None and len(v) < 8:
+            raise ValueError('Password must be at least 8 characters')
+        return v
+
+
+class UserResponse(UserBase):
+    id: int
+    pname: Optional[str] = None
+    icon_id: Optional[int] = None
+    registred: datetime
+    org_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserDetailed(UserResponse):
+    applications: List['ApplicationResponse'] = []
+    bookmarks: List['BookmarkResponse'] = []
+    sent_messages: List['MessageResponse'] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrganisationBase(BaseModel):
     title: str
-    brief: str = None
     description: str
-    icon_path: str = None
-    salary: Tuple[float, float] = (0, 0)
-    required_year: int = 0
 
-    def to_db(self):
-        db_vacancy = db.Vacancy(
-            id=self.id,
-            employer=self.employer,
-            title=self.title,
-            brief=self.brief,
-            description=self.description,
-            icon_path=self.icon_path,
-            salary_top=self.salary[1],
-            salary_bottom=self.salary[0],
-            required_year=self.required_year
-        )
-        return db_vacancy
 
-    @classmethod
-    def from_db(cls, db_vacancy: db.Vacancy):
-        vacancy = cls(
-            id = db_vacancy.id,
-            employer = db_vacancy.employer,
-            title = db_vacancy.title,
-            brief = db_vacancy.brief,
-            description = db_vacancy.description,
-            icon_path = db_vacancy.icon_path,
-            salary = (db_vacancy.salary_top,db_vacancy.salary_bottom),
-            required_year = db_vacancy.required_year
-        )
-        return vacancy
+class OrganisationCreate(OrganisationBase):
+    icon_id: Optional[int] = None
+
+
+class OrganisationUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    icon_id: Optional[int] = None
+
+
+class OrganisationResponse(OrganisationBase):
+    id: int
+    icon_id: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrganisationDetailed(OrganisationResponse):
+    vacancies: List['VacancyResponse'] = []
+    members: List[UserResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VacancyBase(BaseModel):
+    title: str
+    description: str
+    status: int
+
+
+class VacancyCreate(VacancyBase):
+    employer_id: int
+    brief: Optional[str] = None
+    salary_top: Optional[float] = None
+    salary_bottom: Optional[float] = None
+    required_year: Optional[int] = None
+    icon_id: Optional[int] = None
+
+
+class VacancyUpdate(BaseModel):
+    title: Optional[str] = None
+    brief: Optional[str] = None
+    description: Optional[str] = None
+    salary_top: Optional[float] = None
+    salary_bottom: Optional[float] = None
+    required_year: Optional[int] = None
+    status: Optional[int] = None
+    icon_id: Optional[int] = None
+
+
+class VacancyResponse(VacancyBase):
+    id: int
+    employer_id: int
+    brief: Optional[str] = None
+    salary_top: Optional[float] = None
+    salary_bottom: Optional[float] = None
+    required_year: Optional[int] = None
+    icon_id: Optional[int] = None
+    created: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class VacancyDetailed(VacancyResponse):
+    employer: Optional[OrganisationResponse] = None
+    applications: List['ApplicationResponse'] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MediaBase(BaseModel):
+    name: str
+    path: str
+
+
+class MediaCreate(MediaBase):
+    pass
+
+
+class MediaUpdate(BaseModel):
+    name: Optional[str] = None
+    path: Optional[str] = None
+
+
+class MediaResponse(MediaBase):
+    id: int
+    added: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MessageBase(BaseModel):
+    content: str
+
+
+class MessageCreate(MessageBase):
+    recepient_id: int
+
+
+class MessageUpdate(BaseModel):
+    content: Optional[str] = None
+
+
+class MessageResponse(MessageBase):
+    id: int
+    sent: datetime
+    last_edit: Optional[datetime] = None
+    sender_id: int
+    recepient_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MessageDetailed(MessageResponse):
+    sender: Optional[UserResponse] = None
+    recipient: Optional[UserResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ApplicationBase(BaseModel):
+    title: str
+    content: str
+
+
+class ApplicationCreate(ApplicationBase):
+    vacancy_id: int
+
+
+class ApplicationUpdate(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
+
+class ApplicationResponse(ApplicationBase):
+    id: int
+    user_id: int
+    vacancy_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ApplicationDetailed(ApplicationResponse):
+    user: Optional[UserResponse] = None
+    vacancy: Optional[VacancyResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BookmarkCreate(BaseModel):
+    vacancy_id: int
+
+
+class BookmarkResponse(BaseModel):
+    vacancy_id: int
+    user_id: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BookmarkDetailed(BookmarkResponse):
+    vacancy: Optional[VacancyResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MessageMediaCreate(BaseModel):
+    media_id: int
+
+
+class VacancyMediaCreate(BaseModel):
+    media_id: int
+
+
+class ApplicationMediaCreate(BaseModel):
+    media_id: int
