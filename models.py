@@ -1,243 +1,167 @@
-from pydantic import BaseModel, field_validator, EmailStr, ConfigDict
-from typing import List, Optional
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, event
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
-import db_handler as db
 
+DATABASE_URL = 'sqlite:///./database.db'
+engine = create_engine(DATABASE_URL, connect_args={'check_same_thread': False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+
+@event.listens_for(engine, "connect")
+def enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-class UserBase(BaseModel):
-    fname: str
-    lname: str
-    email: EmailStr
-    role: bool
+class User(Base):
+    __tablename__ = "users"
 
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    fname = Column(String)
+    lname = Column(String)
+    pname = Column(String, nullable=True)
+    email = Column(String, unique=True, index=True)
+    password = Column(String)
+    role = Column(Boolean)
+    icon_id = Column(Integer, ForeignKey('media.id', ondelete='SET NULL'), nullable=True)
+    registred = Column(DateTime, default=datetime.utcnow)
+    org_id = Column(Integer, ForeignKey('organisations.id', ondelete='SET NULL'), nullable=True)
 
-class UserCreate(UserBase):
-    password: str
-    pname: Optional[str] = None
-    org_id: Optional[int] = None
+    # Relationships
+    sent_messages = relationship('Message', foreign_keys='Message.sender_id', back_populates='sender')
+    received_messages = relationship('Message', foreign_keys='Message.recipient_id', back_populates='recipient')
+    bookmarks = relationship('Bookmark', back_populates='user', cascade='all, delete-orphan')
+    applications = relationship('Application', back_populates='user', cascade='all, delete-orphan')
+    icon = relationship('Media', foreign_keys=[icon_id])
+    organisation = relationship('Organisation', foreign_keys=[org_id], back_populates='members')
 
-    @field_validator('password')
-    @classmethod
-    def validate_password(cls, v):
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
-        return v
 
+class Vacancy(Base):
+    __tablename__ = "vacancies"
 
-class UserUpdate(BaseModel):
-    fname: Optional[str] = None
-    lname: Optional[str] = None
-    pname: Optional[str] = None
-    email: Optional[EmailStr] = None
-    password: Optional[str] = None
-    role: Optional[bool] = None
-    icon_id: Optional[int] = None
-    org_id: Optional[int] = None
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    employer_id = Column(Integer, ForeignKey('organisations.id', ondelete='CASCADE'))
+    title = Column(String, unique=True)
+    brief = Column(String, nullable=True)
+    description = Column(Text)
+    icon_id = Column(Integer, ForeignKey('media.id', ondelete='SET NULL'))
+    salary_top = Column(Float, nullable=True)
+    salary_bottom = Column(Float, nullable=True)
+    required_year = Column(Integer, nullable=True)
+    created = Column(DateTime, default=datetime.utcnow)
+    status = Column(Integer)
 
-    @field_validator('password')
-    @classmethod
-    def validate_password(cls, v):
-        if v is not None and len(v) < 8:
-            raise ValueError('Password must be at least 8 characters')
-        return v
+    # Relationships
+    employer = relationship('Organisation', back_populates='vacancies')
+    bookmarks = relationship('Bookmark', back_populates='vacancy', cascade='all, delete-orphan')
+    vacancy_media = relationship('VacancyMedia', back_populates='vacancy', cascade='all, delete-orphan')
+    applications = relationship('Application', back_populates='vacancy', cascade='all, delete-orphan')
+    icon = relationship('Media', foreign_keys=[icon_id])
 
+class Organisation(Base):
+    __tablename__ = 'organisations'
 
-class UserResponse(UserBase):
-    id: int
-    pname: Optional[str] = None
-    icon_id: Optional[int] = None
-    registred: datetime
-    org_id: Optional[int] = None
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    title = Column(String)
+    description = Column(Text)
+    icon_id = Column(Integer, ForeignKey('media.id', ondelete='SET NULL'), nullable=True)
 
-    model_config = ConfigDict(from_attributes=True)
+    vacancies = relationship('Vacancy', back_populates='employer')
+    members = relationship('User', back_populates='organisation')
+    icon = relationship('Media', foreign_keys=[icon_id])
 
 
-class UserDetailed(UserResponse):
-    applications: List['ApplicationResponse'] = []
-    bookmarks: List['BookmarkResponse'] = []
-    sent_messages: List['MessageResponse'] = []
+class Media(Base):
+    __tablename__ = 'media'
 
-    model_config = ConfigDict(from_attributes=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String)
+    path = Column(String)
+    added = Column(DateTime, default=datetime.utcnow)
 
+    message_media = relationship('MessageMedia', back_populates='media', cascade='all, delete-orphan')
+    vacancy_media = relationship('VacancyMedia', back_populates='media', cascade='all, delete-orphan')
+    application_media = relationship('ApplicationMedia', back_populates='media', cascade='all, delete-orphan')
 
-class OrganisationBase(BaseModel):
-    title: str
-    description: str
 
+class Message(Base):
+    __tablename__ = 'messages'
 
-class OrganisationCreate(OrganisationBase):
-    icon_id: Optional[int] = None
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    content = Column(String)
+    sent = Column(DateTime, default=datetime.utcnow)
+    last_edit = Column(DateTime, nullable=True)
+    sender_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
+    recipient_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
 
+    sender = relationship('User', foreign_keys=[sender_id], back_populates='sent_messages')
+    recipient = relationship('User', foreign_keys=[recipient_id], back_populates='received_messages')
+    message_media = relationship('MessageMedia', back_populates='message', cascade='all, delete-orphan')
 
-class OrganisationUpdate(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    icon_id: Optional[int] = None
 
+class Bookmark(Base):
+    __tablename__ = 'bookmarks'
 
-class OrganisationResponse(OrganisationBase):
-    id: int
-    icon_id: Optional[int] = None
+    vacancy_id = Column(Integer, ForeignKey('vacancies.id', ondelete='CASCADE'), primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
 
-    model_config = ConfigDict(from_attributes=True)
+    user = relationship('User', back_populates='bookmarks')
+    vacancy = relationship('Vacancy', back_populates='bookmarks')
 
 
-class OrganisationDetailed(OrganisationResponse):
-    vacancies: List['VacancyResponse'] = []
-    members: List[UserResponse] = []
+class MessageMedia(Base):
+    __tablename__ = 'messagemedia'
 
-    model_config = ConfigDict(from_attributes=True)
+    media_id = Column(Integer, ForeignKey('media.id', ondelete='CASCADE'), primary_key=True)
+    message_id = Column(Integer, ForeignKey('messages.id', ondelete='CASCADE'), primary_key=True)
 
+    media = relationship('Media', back_populates='message_media')
+    message = relationship('Message', back_populates='message_media')
 
-class VacancyBase(BaseModel):
-    title: str
-    description: str
-    status: int
 
+class VacancyMedia(Base):
+    __tablename__ = 'vacancymedia'
 
-class VacancyCreate(VacancyBase):
-    employer_id: int
-    brief: Optional[str] = None
-    salary_top: Optional[float] = None
-    salary_bottom: Optional[float] = None
-    required_year: Optional[int] = None
-    icon_id: Optional[int] = None
+    vacancy_id = Column(Integer, ForeignKey('vacancies.id', ondelete='CASCADE'), primary_key=True)
+    media_id = Column(Integer, ForeignKey('media.id', ondelete='CASCADE'), primary_key=True)
 
+    vacancy = relationship('Vacancy', back_populates='vacancy_media')
+    media = relationship('Media', back_populates='vacancy_media')
 
-class VacancyUpdate(BaseModel):
-    title: Optional[str] = None
-    brief: Optional[str] = None
-    description: Optional[str] = None
-    salary_top: Optional[float] = None
-    salary_bottom: Optional[float] = None
-    required_year: Optional[int] = None
-    status: Optional[int] = None
-    icon_id: Optional[int] = None
 
+class Application(Base):
+    __tablename__ = 'applications'
 
-class VacancyResponse(VacancyBase):
-    id: int
-    employer_id: int
-    brief: Optional[str] = None
-    salary_top: Optional[float] = None
-    salary_bottom: Optional[float] = None
-    required_year: Optional[int] = None
-    icon_id: Optional[int] = None
-    created: datetime
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'))
+    vacancy_id = Column(Integer, ForeignKey('vacancies.id', ondelete='CASCADE'))
+    title = Column(String)
+    content = Column(String)
 
-    model_config = ConfigDict(from_attributes=True)
+    user = relationship('User', back_populates='applications')
+    vacancy = relationship('Vacancy', foreign_keys=[vacancy_id], back_populates='applications')
+    application_media = relationship('ApplicationMedia', back_populates='application')
 
 
-class VacancyDetailed(VacancyResponse):
-    employer: Optional[OrganisationResponse] = None
-    applications: List['ApplicationResponse'] = []
+class ApplicationMedia(Base):
+    __tablename__ = 'applicationmedia'
 
-    model_config = ConfigDict(from_attributes=True)
+    media_id = Column(Integer, ForeignKey('media.id', ondelete='CASCADE'), primary_key=True)
+    application_id = Column(Integer, ForeignKey('applications.id', ondelete='CASCADE'), primary_key=True)
 
+    media = relationship('Media', back_populates='application_media')
+    application = relationship('Application', back_populates='application_media')
 
-class MediaBase(BaseModel):
-    name: str
-    path: str
 
-
-class MediaCreate(MediaBase):
-    pass
-
-
-class MediaUpdate(BaseModel):
-    name: Optional[str] = None
-    path: Optional[str] = None
-
-
-class MediaResponse(MediaBase):
-    id: int
-    added: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class MessageBase(BaseModel):
-    content: str
-
-
-class MessageCreate(MessageBase):
-    recepient_id: int
-
-
-class MessageUpdate(BaseModel):
-    content: Optional[str] = None
-
-
-class MessageResponse(MessageBase):
-    id: int
-    sent: datetime
-    last_edit: Optional[datetime] = None
-    sender_id: int
-    recepient_id: int
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class MessageDetailed(MessageResponse):
-    sender: Optional[UserResponse] = None
-    recipient: Optional[UserResponse] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ApplicationBase(BaseModel):
-    title: str
-    content: str
-
-
-class ApplicationCreate(ApplicationBase):
-    vacancy_id: int
-
-
-class ApplicationUpdate(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-
-
-class ApplicationResponse(ApplicationBase):
-    id: int
-    user_id: int
-    vacancy_id: int
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class ApplicationDetailed(ApplicationResponse):
-    user: Optional[UserResponse] = None
-    vacancy: Optional[VacancyResponse] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class BookmarkCreate(BaseModel):
-    vacancy_id: int
-
-
-class BookmarkResponse(BaseModel):
-    vacancy_id: int
-    user_id: int
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class BookmarkDetailed(BookmarkResponse):
-    vacancy: Optional[VacancyResponse] = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class MessageMediaCreate(BaseModel):
-    media_id: int
-
-
-class VacancyMediaCreate(BaseModel):
-    media_id: int
-
-
-class ApplicationMediaCreate(BaseModel):
-    media_id: int
+Base.metadata.drop_all(bind=engine)
+Base.metadata.create_all(bind=engine)
